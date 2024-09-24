@@ -21,6 +21,10 @@
 
 #include <algorithm>
 
+#if defined(__HIPCC__) && defined(__gfx908__)
+  #define __HIP__MI100__
+#endif
+
 #if defined(__HIPCC__) && (defined(__gfx90a__) || defined(__gfx940__) || \
                            defined(__gfx941__) || defined(__gfx942__))
   #define __HIP__MI300_MI250__
@@ -40,7 +44,7 @@
 #define DIVIDE_ROUND_UP(a, b) (((a) + (b) - 1) / (b))
 #define WARP_SIZE 64
 
-#if defined(__HIP__MI300_MI250__)  // TODO: Add NAVI support
+#if defined(__HIP__MI100__) || defined(__HIP__MI300_MI250__)  // TODO: Add NAVI support
 
   #define GCN_MFMA_INSTR1 __builtin_amdgcn_mfma_f32_16x16x4f32
   #define GCN_MFMA_INSTR __builtin_amdgcn_mfma_f32_4x4x4f16
@@ -54,7 +58,9 @@ typedef struct _Half8 {
 } _Half8;
 
 using bit16_t = uint16_t;
+using bit16x2 = __attribute__((__vector_size__(2 * sizeof(uint16_t)))) uint16_t;
 using bit16x4 = __attribute__((__vector_size__(4 * sizeof(uint16_t)))) uint16_t;
+typedef bit16x2 _B16x2;
 typedef bit16x4 _B16x4;
 typedef struct _B16x8 {
   _B16x4 xy[2];
@@ -80,8 +86,18 @@ __device__ __forceinline__ floatx4 gcn_mfma_instr(const _B16x4& inpA,
     return __builtin_amdgcn_mfma_f32_4x4x4f16(inpA, inpB, inpC, absz, cbid,
                                               blgp);
   } else if constexpr (std::is_same<T, __hip_bfloat16>::value) {
+#ifdef __HIP__MI300_MI250__
     return __builtin_amdgcn_mfma_f32_4x4x4bf16_1k(inpA, inpB, inpC, absz, cbid,
                                                   blgp);
+#else
+    return __builtin_amdgcn_mfma_f32_4x4x2bf16(
+      (bit16x2){inpA[0], inpA[1]},
+      (bit16x2){inpB[0], inpB[1]}, 
+      __builtin_amdgcn_mfma_f32_4x4x2bf16(
+        (bit16x2){inpA[2], inpA[3]},
+        (bit16x2){inpB[2], inpB[3]}, inpC, absz, cbid, blgp),
+      absz, cbid, blgp);
+#endif
   } else {
     static_assert(false, "unsupported 16b dtype");
   }
