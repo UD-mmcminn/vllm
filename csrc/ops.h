@@ -113,6 +113,8 @@ torch::Tensor prepack_B(torch::Tensor const& B,
 
 };  // namespace machete
 
+torch::Tensor permute_cols(torch::Tensor const& A, torch::Tensor const& perm);
+
 torch::Tensor gptq_marlin_24_gemm(torch::Tensor& a, torch::Tensor& b_q_weight,
                                   torch::Tensor& b_meta,
                                   torch::Tensor& b_scales,
@@ -222,11 +224,10 @@ std::vector<torch::Tensor> selective_scan_fwd(
     const c10::optional<torch::Tensor>& index_,
     const c10::optional<torch::Tensor>& x);
 
-at::Tensor causal_conv1d_update(const at::Tensor& x,
-                                const at::Tensor& conv_state,
-                                const at::Tensor& weight,
-                                const c10::optional<at::Tensor>& bias_,
-                                bool silu_activation);
+at::Tensor causal_conv1d_update(
+    const at::Tensor& x, const at::Tensor& conv_state, const at::Tensor& weight,
+    const c10::optional<at::Tensor>& bias, bool silu_activation,
+    const c10::optional<at::Tensor>& conv_state_indices);
 
 at::Tensor causal_conv1d_fwd(const at::Tensor& x, const at::Tensor& weight,
                              const c10::optional<at::Tensor>& bias_,
