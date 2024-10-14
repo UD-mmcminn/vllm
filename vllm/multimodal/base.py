@@ -1,7 +1,7 @@
 import sys
 from abc import ABC, abstractmethod
 from collections import UserDict, defaultdict
-from typing import (Callable, Dict, List, Mapping, Optional, Tuple, Type,
+from typing import (Any, Callable, Dict, List, Mapping, Optional, Tuple, Type,
                     TypedDict, TypeVar, Union, cast, final)
 
 import numpy as np
@@ -15,7 +15,7 @@ from vllm.config import ModelConfig
 from vllm.inputs import InputContext
 from vllm.logger import init_logger
 from vllm.utils import (JSONTree, get_allowed_kwarg_only_overrides, is_list_of,
-                        json_map_leaves)
+                        json_map_leaves, resolve_mm_processor_kwargs)
 
 logger = init_logger(__name__)
 
@@ -53,6 +53,12 @@ class MultiModalInputs(_MultiModalInputsBase):
         """
         if isinstance(nested_tensors, torch.Tensor):
             return nested_tensors
+
+        if isinstance(nested_tensors, np.ndarray):
+            return torch.from_numpy(nested_tensors)
+
+        if isinstance(nested_tensors, (int, float)):
+            return torch.tensor(nested_tensors)
 
         stacked = [MultiModalInputs._try_stack(t) for t in nested_tensors]
         if not is_list_of(stacked, torch.Tensor, check="all"):
@@ -194,6 +200,7 @@ class MultiModalPlugin(ABC):
         self,
         ctx: InputContext,
         data: MultiModalData[object],
+        **mm_processor_kwargs,
     ) -> MultiModalInputs:
         """
         Return a dictionary to be passed as keyword arguments to
@@ -237,7 +244,8 @@ class MultiModalPlugin(ABC):
         return wrapper
 
     def map_input(self, model_config: ModelConfig,
-                  data: MultiModalData[object]) -> MultiModalInputs:
+                  data: MultiModalData[object],
+                  mm_processor_kwargs: Dict[str, Any]) -> MultiModalInputs:
         """
         Transform the data into a dictionary of model inputs using the
         input mapper registered for that model.
@@ -257,19 +265,26 @@ class MultiModalPlugin(ABC):
         model_cls, _ = get_model_architecture(model_config)
 
         mapper = self._input_mappers.get(model_cls)
-        # Only get processor kwargs at mapping time if we are not using the
-        # input mapper; no overrides are used on the default here because they
-        # should be passed to the huggingface resource at initialization time.
-        if mapper is not None and mapper != self._default_input_mapper:
-            mm_processor_kwargs = get_allowed_kwarg_only_overrides(
-                mapper, overrides=model_config.mm_processor_kwargs)
-        else:
-            mm_processor_kwargs = {}
 
         if mapper is None:
             raise KeyError(f"No input mapper in {self} is registered for "
                            f"model class {model_cls.__name__}.")
 
+        # In the case of the default mapper, we have to get resource
+        # processor through its HuggingFace autoclass; since this goes
+        # through **kwargs, we can't inspect it the same way, so we allow
+        # drop mm_processor_kwargs based on signature inspection
+        # if we're using the default mapper.
+        #
+        # This should be safe in general due to the sanitation, since the
+        # transformers resource should filter unused kwargs anyway.
+        uses_default_mapper = mapper == self._default_input_mapper
+        mm_processor_kwargs = resolve_mm_processor_kwargs(
+            model_config.mm_processor_kwargs,
+            mm_processor_kwargs,
+            callable=mapper,
+            allow_var_kwargs=uses_default_mapper,
+        )
         return mapper(InputContext(model_config), data, **mm_processor_kwargs)
 
     @abstractmethod
