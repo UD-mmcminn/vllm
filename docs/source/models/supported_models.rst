@@ -330,10 +330,15 @@ Text Embedding
     - :code:`BAAI/bge-multilingual-gemma2`, etc.
     - 
     - ✅︎
-  * - :code:`MistralModel`
-    - Mistral-based
+  * - :code:`LlamaModel`, :code:`LlamaForCausalLM`, :code:`MistralModel`, etc.
+    - Llama-based
     - :code:`intfloat/e5-mistral-7b-instruct`, etc.
-    - 
+    - ✅︎
+    - ✅︎
+  * - :code:`Qwen2Model`, :code:`Qwen2ForCausalLM`
+    - Qwen2-based
+    - :code:`ssmits/Qwen2-7B-Instruct-embed-base`, :code:`Alibaba-NLP/gte-Qwen2-1.5B-instruct`, etc.
+    - ✅︎
     - ✅︎
 
 .. important::
@@ -355,7 +360,7 @@ Reward Modeling
   * - :code:`Qwen2ForRewardModel`
     - Qwen2-based
     - :code:`Qwen/Qwen2.5-Math-RM-72B`, etc.
-    - 
+    - ✅︎
     - ✅︎
 
 .. note::
@@ -376,7 +381,7 @@ Classification
   * - :code:`Qwen2ForSequenceClassification`
     - Qwen2-based
     - :code:`jason9693/Qwen2.5-1.5B-apeach`, etc.
-    - 
+    - ✅︎
     - ✅︎
 
 .. note::
@@ -446,6 +451,12 @@ Text Generation
     - :code:`h2oai/h2ovl-mississippi-800m`, :code:`h2oai/h2ovl-mississippi-2b`, etc.
     - 
     - ✅︎
+  * - :code:`Idefics3ForConditionalGeneration`
+    - Idefics3
+    - T + I
+    - :code:`HuggingFaceM4/Idefics3-8B-Llama3` etc.
+    - ✅︎
+    - 
   * - :code:`InternVLChatModel`
     - InternVL2
     - T + I\ :sup:`E+`
@@ -532,9 +543,9 @@ Text Generation
     - ✅︎
   * - :code:`Qwen2VLForConditionalGeneration`
     - Qwen2-VL
-    - T + I\ :sup:`E+` + V\ :sup:`+`
+    - T + I\ :sup:`E+` + V\ :sup:`E+`
     - :code:`Qwen/Qwen2-VL-2B-Instruct`, :code:`Qwen/Qwen2-VL-7B-Instruct`, :code:`Qwen/Qwen2-VL-72B-Instruct`, etc.
-    -
+    - ✅︎
     - ✅︎
   * - :code:`UltravoxModel`
     - Ultravox
@@ -577,6 +588,12 @@ Multimodal Embedding
     - T + I
     - :code:`TIGER-Lab/VLM2Vec-Full`
     - 🚧
+    - ✅︎
+  * - :code:`Qwen2VLForConditionalGeneration`
+    - Qwen2-VL-based
+    - T + I
+    - :code:`MrLight/dse-qwen2-2b-mrl-v1`
+    - 
     - ✅︎
 
 .. important::
