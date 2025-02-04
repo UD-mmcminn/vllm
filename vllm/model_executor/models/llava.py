@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 from abc import abstractmethod
 from functools import cached_property
 from typing import (Final, Iterable, List, Literal, Mapping, Optional,
@@ -24,7 +26,7 @@ from vllm.model_executor.layers.sampler import SamplerOutput, get_sampler
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.multimodal.inputs import (MultiModalDataDict, MultiModalFieldConfig,
-                                    MultiModalInputsV2, MultiModalKwargs,
+                                    MultiModalInputs, MultiModalKwargs,
                                     NestedTensors)
 from vllm.multimodal.parse import (ImageEmbeddingItems, ImageProcessorItems,
                                    ImageSize, MultiModalDataItems)
@@ -73,19 +75,20 @@ class LlavaMultiModalProjector(nn.Module):
                  vision_hidden_size: int,
                  text_hidden_size: int,
                  projector_hidden_act: str,
+                 multimodal_projector_bias: bool,
                  quant_config: Optional[QuantizationConfig] = None,
                  prefix: str = ""):
         super().__init__()
 
         self.linear_1 = ColumnParallelLinear(vision_hidden_size,
                                              text_hidden_size,
-                                             bias=True,
+                                             bias=multimodal_projector_bias,
                                              quant_config=quant_config,
                                              prefix=f"{prefix}.linear_1")
         self.act = get_act_fn(projector_hidden_act)
         self.linear_2 = RowParallelLinear(text_hidden_size,
                                           text_hidden_size,
-                                          bias=True,
+                                          bias=multimodal_projector_bias,
                                           quant_config=quant_config,
                                           prefix=f"{prefix}.linear_2")
 
@@ -315,13 +318,14 @@ class PixtralHFMultiModalProcessor(
         hf_processor_mm_kwargs: Mapping[str, object],
         out_mm_kwargs: MultiModalKwargs,
     ) -> list[PromptReplacement]:
+        processor = self.info.get_hf_processor(**hf_processor_mm_kwargs)
         hf_config = self.info.get_hf_config()
-        image_token_id = hf_config.image_token_index
+        tokenizer = self.info.get_tokenizer()
+        vocab = tokenizer.get_vocab()
 
-        processor = self.info.get_hf_processor()
-        image_token = processor.image_token
-        image_break_token = processor.image_break_token
-        image_end_token = processor.image_end_token
+        image_break_id = vocab[processor.image_break_token]
+        image_token_id = hf_config.image_token_index
+        image_end_id = vocab[processor.image_end_token]
 
         vision_config = hf_config.vision_config
         assert isinstance(vision_config, PixtralVisionConfig)
@@ -336,10 +340,10 @@ class PixtralHFMultiModalProcessor(
                 image_height=image_size.height,
             )
 
-            tokens = ([image_token] * ncols + [image_break_token]) * nrows
-            tokens[-1] = image_end_token
+            tokens = ([image_token_id] * ncols + [image_break_id]) * nrows
+            tokens[-1] = image_end_id
 
-            return "".join(tokens)
+            return tokens
 
         return [
             PromptReplacement(
@@ -500,6 +504,7 @@ class LlavaForConditionalGeneration(nn.Module, SupportsMultiModal, SupportsPP):
             vision_hidden_size=config.vision_config.hidden_size,
             text_hidden_size=config.text_config.hidden_size,
             projector_hidden_act=config.projector_hidden_act,
+            multimodal_projector_bias=config.multimodal_projector_bias,
             quant_config=quant_config,
             prefix=maybe_prefix(prefix, "multi_modal_projector"))
 
@@ -746,7 +751,7 @@ class MantisMultiModalProcessor(LlavaMultiModalProcessor):
         prompt: Union[str, list[int]],
         mm_data: MultiModalDataDict,
         hf_processor_mm_kwargs: Mapping[str, object],
-    ) -> MultiModalInputsV2:
+    ) -> MultiModalInputs:
         hf_config = self.info.get_hf_config()
         image_token_id = hf_config.image_token_index
 
@@ -805,7 +810,7 @@ class MantisMultiModalProcessor(LlavaMultiModalProcessor):
             for modality, placeholders in mm_placeholders.items()
         }
 
-        return MultiModalInputsV2(
+        return MultiModalInputs(
             type="multimodal",
             prompt=prompt,
             prompt_token_ids=prompt_ids,
