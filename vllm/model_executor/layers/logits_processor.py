@@ -14,6 +14,7 @@ from vllm.model_executor.layers.vocab_parallel_embedding import (
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.platforms import current_platform
 
+import torch.multiprocessing as mp
 
 class LogitsProcessor(nn.Module):
     """Process logits and apply logits processors from sampling metadata.
@@ -127,6 +128,71 @@ def _prune_hidden_states(
     else:
         return hidden_states
 
+import torch.multiprocessing as mp
+
+def _p_apply_logits_processors(
+    logits: torch.Tensor,
+    logits_row_idx,
+    logits_processors,
+    prompt_tokens_ids,
+    past_tokens_ids):
+    logits_row = logits[logits_row_idx]
+    
+    for logits_processor in logits_processors:
+        parameters = inspect.signature(logits_processor).parameters
+        if len(parameters) == 3:
+            logits_row = logits_processor(prompt_tokens_ids,
+                                        past_tokens_ids,
+                                        logits_row)
+        else:
+            logits_row = logits_processor(past_tokens_ids,
+                                        logits_row)
+    
+    logits[logits_row_idx] = logits_row
+
+def _apply_logits_processors_mp(
+    logits: torch.Tensor,
+    sampling_metadata: SamplingMetadata,
+) -> torch.Tensor:
+    found_logits_processors = False
+    logits_processed = 0
+    
+    if not logits.is_shared():
+        logits.share_memory_()
+
+    with mp.Pool() as pool:
+        for seq_group in sampling_metadata.seq_groups:
+            seq_ids = seq_group.seq_ids
+            sampling_params = seq_group.sampling_params
+            logits_processors = sampling_params.logits_processors
+
+            if logits_processors:
+                found_logits_processors = True
+
+                def _yield_logits():
+                    for seq_id, logits_row_idx in zip(seq_ids,
+                                                    seq_group.sample_indices):
+                        logits_row = logits[logits_row_idx]
+                        past_tokens_ids = seq_group.seq_data[seq_id].output_token_ids
+                        prompt_tokens_ids = seq_group.seq_data[seq_id].prompt_token_ids
+
+                        yield (
+                            logits,
+                            logits_row_idx,
+                            logits_processors,
+                            past_tokens_ids,
+                            prompt_tokens_ids)
+            
+                pool.starmap(_p_apply_logits_processors, _yield_logits())
+                
+            logits_processed += len(seq_group.sample_indices) + len(
+                seq_group.prompt_logprob_indices)
+
+    if found_logits_processors:
+        # verifies that no rows in logits were missed unexpectedly
+        assert logits_processed == logits.shape[0]
+        
+    return logits
 
 def _apply_logits_processors(
     logits: torch.Tensor,
