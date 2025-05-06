@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Copyright (c) 2024, Tri Dao, Albert Gu.
-# Adapted from https://github.com/state-spaces/mamba/blob/main/mamba_ssm/ops/triton/selective_state_update.py
+# Adapted from https://github.com/state-spaces/mamba/blob/v2.2.4/mamba_ssm/ops/triton/selective_state_update.py
 
 import torch
 import triton
@@ -10,8 +10,10 @@ from packaging import version
 
 from vllm import _custom_ops as ops
 from vllm.attention.backends.utils import PAD_SLOT_ID
+from vllm.triton_utils import HAS_TRITON
 
-TRITON3 = version.parse(triton.__version__) >= version.parse("3.0.0")
+TRITON3 = HAS_TRITON and (version.parse(triton.__version__)
+                          >= version.parse("3.0.0"))
 
 if TRITON3:
 

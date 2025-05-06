@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import fnmatch
-import re
 from typing import Any, Dict, List, Optional, cast
 
 import torch
@@ -9,6 +8,7 @@ import torch
 from vllm.model_executor.layers.fused_moe import FusedMoE
 from vllm.model_executor.layers.linear import (LinearBase, LinearMethodBase,
                                                UnquantizedLinearMethod)
+from vllm.model_executor.layers.quantization import QuantizationMethods
 from vllm.model_executor.layers.quantization.base_config import (  # noqa: E501
     QuantizationConfig, QuantizeMethodBase)
 from vllm.model_executor.layers.quantization.kv_cache import BaseKVCacheMethod
@@ -18,8 +18,6 @@ from vllm.model_executor.layers.quantization.quark.schemes import (
     QuarkScheme, QuarkW8A8Fp8, QuarkW8A8Int8)
 from vllm.model_executor.layers.quantization.quark.utils import (
     deep_compare, should_ignore_layer)
-from vllm.model_executor.layers.quantization.utils.quant_utils import (
-    FUSED_LAYER_NAME_MAPPING)
 from vllm.platforms import current_platform
 
 __all__ = ["QuarkLinearMethod"]
@@ -32,6 +30,7 @@ class QuarkConfig(QuantizationConfig):
                  kv_cache_group: Optional[List[str]] = None,
                  kv_cache_config: Optional[Dict[str, Any]] = None,
                  pack_method: str = "reorder"):
+        super().__init__()
         if kv_cache_group is None:
             kv_cache_group = []
         self.quant_config = quant_config
@@ -49,7 +48,7 @@ class QuarkConfig(QuantizationConfig):
     def get_min_capability(cls) -> int:
         return 70
 
-    def get_name(self) -> str:
+    def get_name(self) -> QuantizationMethods:
         return "quark"
 
     def get_quant_method(self, layer: torch.nn.Module,
@@ -58,7 +57,9 @@ class QuarkConfig(QuantizationConfig):
 
         # Check if the layer is skipped for quantization.
         exclude_layers = cast(List[str], self.quant_config.get("exclude"))
-        if should_ignore_layer(prefix, ignore=exclude_layers):
+        if should_ignore_layer(prefix,
+                               ignore=exclude_layers,
+                               fused_mapping=self.packed_modules_mapping):
             return UnquantizedLinearMethod()
         if isinstance(layer, LinearBase):
             scheme = self.get_scheme(layer=layer, layer_name=prefix)
@@ -123,6 +124,13 @@ class QuarkConfig(QuantizationConfig):
             # output_tensors corresponding to the kv_cache layer.
             for q_config in q_configs:
                 q_config["output_tensors"] = None
+
+            # In case q_proj output is also quantized, remove the configuration
+            # to keep qkv consistency.
+            q_proj_q_config = cast(Dict[str, Any],
+                                   layer_quant_config.get("*q_proj"))
+            if q_proj_q_config is not None:
+                q_proj_q_config["output_tensors"] = None
 
         return cls(quant_config=config,
                    kv_cache_group=kv_cache_group,
@@ -201,8 +209,8 @@ class QuarkConfig(QuantizationConfig):
                              module: torch.nn.Module) -> Dict[str, Any]:
 
         proj_name = layer_name.split(".")[-1]
-        if proj_name in FUSED_LAYER_NAME_MAPPING:
-            shard_proj_names = FUSED_LAYER_NAME_MAPPING[proj_name]
+        if proj_name in self.packed_modules_mapping:
+            shard_proj_names = self.packed_modules_mapping[proj_name]
 
             # Convert fused_name --> [shard_names]
             shard_names = [
@@ -288,25 +296,14 @@ class QuarkConfig(QuantizationConfig):
         :param name: param name
         :return: matching param name for KV cache scale in vLLM
         """
-        if self.kv_cache_group is None or len(self.kv_cache_group) == 0:
-            return None
-
-        kv_proj_names = [
-            re.split(r"[*.]", kv_cache)[-1] for kv_cache in self.kv_cache_group
-        ]
-        if name.endswith(".output_scale"):
-            if len(kv_proj_names) == 1 and kv_proj_names[0] in name:
-                kv_output_scale_name = "." + kv_proj_names[0] + ".output_scale"
-                return name.replace(kv_output_scale_name, ".attn.k_scale")
-
-            elif len(kv_proj_names) == 2:
-                for kv_proj_name in kv_proj_names:
-                    if kv_proj_name in name and kv_proj_name == "k_proj":
-                        return name.replace(".k_proj.output_scale",
-                                            ".attn.k_scale")
-                    elif kv_proj_name in name and kv_proj_name == "v_proj":
-                        return name.replace(".v_proj.output_scale",
-                                            ".attn.v_scale")
+        if name.endswith(".output_scale") and ".k_proj" in name:
+            return name.replace(".k_proj.output_scale", ".attn.k_scale")
+        if name.endswith(".output_scale") and ".v_proj" in name:
+            return name.replace(".v_proj.output_scale", ".attn.v_scale")
+        if name.endswith(".output_scale") and ".q_proj" in name:
+            return name.replace(".q_proj.output_scale", ".attn.q_scale")
+        if name.endswith("self_attn.prob_output_scale"):
+            return name.replace(".prob_output_scale", ".attn.prob_scale")
 
         # If no matches, return None
         return None
