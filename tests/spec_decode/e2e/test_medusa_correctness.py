@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """This docstring details important information on the testing methodology.
 
 Most of the tests rely on "greedy equality", where we expect the output of
@@ -205,7 +206,7 @@ def test_medusa_e2e_greedy_correctness_cuda_graph(
 @pytest.mark.parametrize(
     "common_llm_kwargs",
     [{
-        "block_size": 8,
+        "block_size": 16,
         # 2 for small prompt, 256//8 for generated.
         "num_gpu_blocks_override": 2 + 256 // 8,
         "max_model_len": (2 + 256 // 8) * 8,
