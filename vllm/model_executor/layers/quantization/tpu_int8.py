@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 from torch.nn import Module
@@ -12,7 +13,7 @@ from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
 from vllm.model_executor.parameter import ModelWeightParameter
 
-ACTIVATION_SCHEMES = ["none"]
+ACTIVATION_SCHEMES = ["none", "dynamic"]
 
 
 class Int8TpuConfig(QuantizationConfig):
@@ -31,7 +32,7 @@ class Int8TpuConfig(QuantizationConfig):
     def get_name(self) -> QuantizationMethods:
         return "tpu_int8"
 
-    def get_supported_act_dtypes(self) -> List[torch.dtype]:
+    def get_supported_act_dtypes(self) -> list[torch.dtype]:
         return [torch.float16, torch.bfloat16]
 
     @classmethod
@@ -40,11 +41,11 @@ class Int8TpuConfig(QuantizationConfig):
             "This function should not be called with TPU Backend")
 
     @staticmethod
-    def get_config_filenames() -> List[str]:
+    def get_config_filenames() -> list[str]:
         return []
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "Int8TpuConfig":
+    def from_config(cls, config: dict[str, Any]) -> "Int8TpuConfig":
         activation_scheme = cls.get_from_keys(config, ["activation_scheme"])
         return cls(activation_scheme=activation_scheme)
 
@@ -60,9 +61,12 @@ class TPUInt8LinearMethod(LinearMethodBase):
 
     def __init__(self, quant_config: Int8TpuConfig):
         self.quant_config = quant_config
+        self.quantize_activation = False
+        if self.quant_config.activation_scheme == 'dynamic':
+            self.quantize_activation = True
 
     def create_weights(self, layer: Module, input_size_per_partition: int,
-                       output_partition_sizes: List[int], input_size: int,
+                       output_partition_sizes: list[int], input_size: int,
                        output_size: int, params_dtype: torch.dtype,
                        **extra_weight_attrs):
 
@@ -77,7 +81,7 @@ class TPUInt8LinearMethod(LinearMethodBase):
         layer.register_parameter("weight", weight)
 
     def _quantize_weight(
-            self, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            self, weight: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         weight_dtype = weight.dtype
         weight = weight.cpu().to(torch.float32)
         n_bit = 8
@@ -106,7 +110,7 @@ class TPUInt8LinearMethod(LinearMethodBase):
               x: torch.Tensor,
               bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         try:
-            import torch_xla.experimental.xla_quantized_matmul  # noqa: F401
+            import torch_xla.experimental.custom_kernel  # noqa: F401
         except ImportError as err:
             raise ImportError(
                 "Please install torch_xla by following the instructions at "
@@ -114,7 +118,8 @@ class TPUInt8LinearMethod(LinearMethodBase):
                 "to run vLLM on TPU.") from err
         weight = layer.weight
         scale = layer.scale
-        out = torch.ops.xla.quantized_matmul(x, weight, scale)
+        out = torch.ops.xla.quantized_matmul_int8(
+            x, weight, scale, quantize_activation=self.quantize_activation)
         if bias is not None:
             out = out + bias
         return out

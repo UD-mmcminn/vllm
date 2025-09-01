@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import dataclasses
 import itertools
@@ -23,8 +24,7 @@ from vllm.multimodal import (MULTIMODAL_REGISTRY, MultiModalKwargs,
                              MultiModalRegistry)
 from vllm.platforms import _Backend
 from vllm.sampling_params import SamplingParams
-from vllm.sequence import (IntermediateTensors, PoolerOutput,
-                           SequenceGroupMetadata)
+from vllm.sequence import IntermediateTensors, SequenceGroupMetadata
 from vllm.utils import STR_NOT_IMPL_ENC_DEC_BACKEND, make_tensor_with_pad
 from vllm.worker.model_runner import (GPUModelRunnerBase,
                                       ModelInputForGPUBuilder,
@@ -90,10 +90,9 @@ class EncoderDecoderModelRunner(GPUModelRunnerBase[EncoderDecoderModelInput]):
         '''
         EncoderDecoderModelRunner constructor.
 
-        `lora_config` and `prompt_adapter_config` are
-        unused (since these features are not yet supported for encoder/decoder
-        models) but these arguments are present here for compatibility with 
-        the base-class constructor.
+        `lora_config` is unused (since these features are not yet supported
+        for encoder/decoder models) but these arguments are present here for
+        compatibility with the base-class constructor.
         '''
         self._maybe_force_supported_attention_backend()
 
@@ -161,7 +160,7 @@ class EncoderDecoderModelRunner(GPUModelRunnerBase[EncoderDecoderModelInput]):
         kv_caches: List[torch.Tensor],
         intermediate_tensors: Optional[IntermediateTensors] = None,
         num_steps: int = 1,
-    ) -> Optional[List[PoolerOutput]]:
+    ) -> Optional[List[SamplerOutput]]:
         if num_steps > 1:
             raise ValueError("num_steps > 1 is not supported in "
                              "EncoderDecoderModelRunner")
@@ -202,9 +201,12 @@ class EncoderDecoderModelRunner(GPUModelRunnerBase[EncoderDecoderModelInput]):
                 encoder_input_ids=model_input.encoder_input_tokens,
                 encoder_positions=model_input.encoder_input_positions,
                 intermediate_tensors=intermediate_tensors,
-                **MultiModalKwargs.as_kwargs(multi_modal_kwargs,
-                                             device=self.device),
-                **seqlen_agnostic_kwargs)
+                **MultiModalKwargs.as_kwargs(
+                    multi_modal_kwargs,
+                    device=self.device,
+                ),
+                **seqlen_agnostic_kwargs,
+            )
 
         logits = self.model.compute_logits(hidden_or_intermediate_states,
                                            model_input.sampling_metadata)

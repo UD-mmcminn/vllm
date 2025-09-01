@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from typing import List, Optional
+from typing import Optional
+
+from typing_extensions import assert_never
 
 from vllm.config import LoRAConfig, ModelConfig, SchedulerConfig
 from vllm.lora.request import LoRARequest
@@ -20,6 +23,7 @@ class TokenizerGroup:
         self.tokenizer_config = tokenizer_config
         self.enable_lora = enable_lora
         self.max_input_length = max_input_length
+        self.truncation_side = tokenizer_config.get("truncation_side", "left")
         self.tokenizer = get_tokenizer(self.tokenizer_id, **tokenizer_config)
         max_loras = tokenizer_config.get("max_loras", 0)
         self.lora_tokenizers = LRUCache[int, AnyTokenizer](
@@ -32,7 +36,7 @@ class TokenizerGroup:
         return self.max_input_length
 
     def _raise_if_input_too_long(self,
-                                 encoded_tokens: List[int],
+                                 encoded_tokens: list[int],
                                  lora_request: Optional[LoRARequest] = None):
         input_length = len(encoded_tokens)
         if lora_request:
@@ -48,7 +52,7 @@ class TokenizerGroup:
                max_length: Optional[int] = None,
                truncation: Optional[bool] = None,
                lora_request: Optional[LoRARequest] = None,
-               add_special_tokens: Optional[bool] = None) -> List[int]:
+               add_special_tokens: Optional[bool] = None) -> list[int]:
 
         tokenizer = self.get_lora_tokenizer(lora_request)
         ret = encode_tokens(tokenizer,
@@ -65,7 +69,7 @@ class TokenizerGroup:
             max_length: Optional[int] = None,
             truncation: Optional[bool] = None,
             lora_request: Optional[LoRARequest] = None,
-            add_special_tokens: Optional[bool] = None) -> List[int]:
+            add_special_tokens: Optional[bool] = None) -> list[int]:
         tokenizer = await self.get_lora_tokenizer_async(lora_request)
         ret = encode_tokens(tokenizer,
                             prompt,
@@ -107,6 +111,14 @@ class TokenizerGroup:
 def init_tokenizer_from_configs(model_config: ModelConfig,
                                 scheduler_config: SchedulerConfig,
                                 lora_config: Optional[LoRAConfig]):
+    runner_type = model_config.runner_type
+    if runner_type == "generate" or runner_type == "draft":
+        truncation_side = "left"
+    elif runner_type == "pooling":
+        truncation_side = "right"
+    else:
+        assert_never(runner_type)
+
     return TokenizerGroup(
         tokenizer_id=model_config.tokenizer,
         enable_lora=bool(lora_config),
@@ -116,4 +128,4 @@ def init_tokenizer_from_configs(model_config: ModelConfig,
         tokenizer_mode=model_config.tokenizer_mode,
         trust_remote_code=model_config.trust_remote_code,
         revision=model_config.tokenizer_revision,
-        truncation_side=model_config.truncation_side)
+        truncation_side=truncation_side)

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import asyncio
 import os
@@ -100,7 +101,7 @@ class MultiprocessingDistributedExecutor(DistributedExecutorBase):
             result_handler.start()
             self.worker_monitor.start()
 
-        # Set up signal handlers to shutdown the executor cleanly
+        # Set up signal handlers to shut down the executor cleanly
         # sometimes gc does not work well
 
         self.driver_worker = WorkerWrapperBase(self.vllm_config, 0)

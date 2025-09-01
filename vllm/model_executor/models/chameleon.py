@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
-from typing import Any, Dict, Literal, Optional, Set, Tuple, TypedDict, Union
+from itertools import islice
+from typing import Annotated, Any, Literal, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -30,13 +32,14 @@ from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.multimodal.inputs import (MultiModalDataDict, MultiModalFieldConfig,
-                                    MultiModalKwargs)
+                                    MultiModalKwargsItems)
 from vllm.multimodal.parse import MultiModalDataItems
 from vllm.multimodal.processing import (BaseMultiModalProcessor,
                                         BaseProcessingInfo, PromptReplacement,
                                         PromptUpdate, PromptUpdateDetails)
 from vllm.multimodal.profiling import BaseDummyInputsBuilder
 from vllm.sequence import IntermediateTensors
+from vllm.utils.tensor_schema import TensorSchema, TensorShape
 
 from .interfaces import (MultiModalEmbeddings, SupportsMultiModal, SupportsPP,
                          SupportsQuant)
@@ -47,10 +50,16 @@ from .utils import (flatten_bn, is_pp_missing_parameter,
 logger = init_logger(__name__)
 
 
-class ChameleonImagePixelInputs(TypedDict):
+class ChameleonImagePixelInputs(TensorSchema):
+    """
+    Dimensions:
+        - bn: Batch size * number of images
+        - c: Number of channels (3)
+        - h: Height of each image
+        - w: Width of each image
+    """
     type: Literal["pixel_values"]
-    data: torch.Tensor
-    """Shape: `(batch_size * num_images, num_channels, height, width)`"""
+    data: Annotated[torch.Tensor, TensorShape("bn", 3, "h", "w")]
 
 
 class ChameleonProcessingInfo(BaseProcessingInfo):
@@ -106,6 +115,7 @@ class ChameleonMultiModalProcessor(
         prompt: str,
         mm_data: Mapping[str, object],
         mm_kwargs: Mapping[str, object],
+        tok_kwargs: Mapping[str, object],
     ) -> BatchFeature:
         if not mm_data:
             prompt_ids = self.info.get_tokenizer().encode(prompt)
@@ -116,6 +126,7 @@ class ChameleonMultiModalProcessor(
             prompt=prompt,
             mm_data=mm_data,
             mm_kwargs=mm_kwargs,
+            tok_kwargs=tok_kwargs,
         )
 
     def _apply_hf_processor_tokens_only(
@@ -141,7 +152,7 @@ class ChameleonMultiModalProcessor(
         self,
         mm_items: MultiModalDataItems,
         hf_processor_mm_kwargs: Mapping[str, object],
-        out_mm_kwargs: MultiModalKwargs,
+        out_mm_kwargs: MultiModalKwargsItems,
     ) -> Sequence[PromptUpdate]:
         processor = self.info.get_hf_processor(**hf_processor_mm_kwargs)
         tokenizer = self.info.get_tokenizer()
@@ -229,7 +240,7 @@ class ChameleonAttention(nn.Module):
         num_heads: int,
         num_kv_heads: int,
         rope_theta: float = 10000,
-        rope_scaling: Optional[Dict[str, Any]] = None,
+        rope_scaling: Optional[dict[str, Any]] = None,
         max_position_embeddings: int = 4096,
         quant_config: Optional[QuantizationConfig] = None,
         bias: bool = False,
@@ -292,7 +303,7 @@ class ChameleonAttention(nn.Module):
                               prefix=f"{prefix}.attn")
 
     def _apply_qk_norm(self, q: torch.Tensor,
-                       k: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+                       k: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # reshape for layernorm
         q = q.reshape(-1, self.num_heads, self.head_dim)
         k = k.reshape(-1, self.num_kv_heads, self.head_dim)
@@ -367,7 +378,7 @@ class ChameleonDecoderLayer(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
         residual: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
 
         if residual is None:
             residual = hidden_states
@@ -438,7 +449,7 @@ class ChameleonSwinDecoderLayer(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
         residual: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
 
         residual = hidden_states
         hidden_states = self.self_attn(
@@ -773,7 +784,7 @@ class ChameleonVQVAE(nn.Module):
 
     def encode(
         self, pixel_values: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         hidden_states = self.encoder(pixel_values)
         hidden_states = self.quant_conv(hidden_states)
         quant, emb_loss, indices = self.quantize(hidden_states)
@@ -786,7 +797,7 @@ class ChameleonImageVocabularyMapping:
     A class for mapping discrete image tokens from VQGAN to BPE tokens.
     """
 
-    def __init__(self, vocab_map: Dict[str, int]):
+    def __init__(self, vocab_map: dict[str, int]):
         self.vocab_map = vocab_map
         self.image_token_id = vocab_map.get("<image>")
 
@@ -904,7 +915,7 @@ class ChameleonModel(nn.Module):
             assert intermediate_tensors is not None
             hidden_states = intermediate_tensors["hidden_states"]
             residual = intermediate_tensors["residual"]
-        for layer in self.layers[self.start_layer:self.end_layer]:
+        for layer in islice(self.layers, self.start_layer, self.end_layer):
             hidden_states, residual = layer(
                 positions,
                 hidden_states,
@@ -930,6 +941,13 @@ class ChameleonForConditionalGeneration(nn.Module, SupportsMultiModal,
         "gate_up_proj": ["gate_proj", "up_proj"]
     }
 
+    @classmethod
+    def get_placeholder_str(cls, modality: str, i: int) -> Optional[str]:
+        if modality.startswith("image"):
+            return "<image>"
+
+        raise ValueError("Only image modality is supported")
+
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
         config = vllm_config.model_config.hf_config
@@ -952,19 +970,6 @@ class ChameleonForConditionalGeneration(nn.Module, SupportsMultiModal,
         self.make_empty_intermediate_tensors = (
             self.model.make_empty_intermediate_tensors)
 
-    def _validate_pixel_values(self, data: torch.Tensor) -> torch.Tensor:
-        vq_config: ChameleonVQVAEConfig = self.config.vq_config
-        expected_dims = (3, vq_config.resolution, vq_config.resolution)
-        actual_dims = tuple(data.shape[1:])
-
-        if actual_dims != expected_dims:
-            expected_expr = ("batch_size", *map(str, expected_dims))
-            raise ValueError(
-                f"The expected shape of pixel values is {expected_expr}. "
-                f"You supplied {tuple(data.shape)}.")
-
-        return data
-
     def _parse_and_validate_image_input(
             self, **kwargs: object) -> Optional[ChameleonImagePixelInputs]:
         pixel_values = kwargs.pop("pixel_values", None)
@@ -972,25 +977,25 @@ class ChameleonForConditionalGeneration(nn.Module, SupportsMultiModal,
         if pixel_values is None:
             return None
 
-        if not isinstance(pixel_values, (torch.Tensor, list)):
-            raise ValueError("Incorrect type of pixel values. "
-                             f"Got type: {type(pixel_values)}")
+        vq_config: ChameleonVQVAEConfig = self.config.vq_config
+        expected_h = expected_w = vq_config.resolution
 
-        pixel_values = flatten_bn(pixel_values, concat=True)
-
-        return ChameleonImagePixelInputs(
-            type="pixel_values",
-            data=self._validate_pixel_values(pixel_values),
-        )
+        return ChameleonImagePixelInputs(type="pixel_values",
+                                         data=flatten_bn(pixel_values,
+                                                         concat=True),
+                                         resolve_bindings={
+                                             "h": expected_h,
+                                             "w": expected_w
+                                         })
 
     def get_language_model(self) -> torch.nn.Module:
         return self.model
 
-    def get_multimodal_embeddings(
-            self, **kwargs: object) -> Optional[MultiModalEmbeddings]:
+    def get_multimodal_embeddings(self,
+                                  **kwargs: object) -> MultiModalEmbeddings:
         image_input = self._parse_and_validate_image_input(**kwargs)
         if image_input is None:
-            return None
+            return []
         assert self.model.vqmodel is not None
         image_tokens = self.model.get_image_tokens(image_input["data"].to(
             self.config.torch_dtype))
@@ -1004,7 +1009,8 @@ class ChameleonForConditionalGeneration(nn.Module, SupportsMultiModal,
     ) -> torch.Tensor:
 
         inputs_embeds = self.model.get_input_embeddings(input_ids)
-        if multimodal_embeddings is not None:
+        if multimodal_embeddings is not None \
+            and len(multimodal_embeddings) != 0:
             inputs_embeds = merge_multimodal_embeddings(
                 input_ids, inputs_embeds, multimodal_embeddings,
                 self.model.vocabulary_mapping.image_token_id)
@@ -1052,8 +1058,8 @@ class ChameleonForConditionalGeneration(nn.Module, SupportsMultiModal,
 
         return logits
 
-    def load_weights(self, weights: Iterable[Tuple[str,
-                                                   torch.Tensor]]) -> Set[str]:
+    def load_weights(self, weights: Iterable[tuple[str,
+                                                   torch.Tensor]]) -> set[str]:
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
             (".qkv_proj", ".q_proj", "q"),
@@ -1063,7 +1069,7 @@ class ChameleonForConditionalGeneration(nn.Module, SupportsMultiModal,
             (".gate_up_proj", ".up_proj", 1),
         ]
         params_dict = dict(self.named_parameters())
-        loaded_params: Set[str] = set()
+        loaded_params: set[str] = set()
         for name, loaded_weight in weights:
             if "rotary_emb.inv_freq" in name:
                 continue

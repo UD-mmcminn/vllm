@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from packaging import version
 
 from vllm.model_executor.layers.linear import LinearBase, LinearMethodBase
 from vllm.model_executor.layers.quantization import QuantizationMethods
@@ -46,7 +48,7 @@ class DeepSpeedFPConfig(QuantizationConfig):
         return "deepspeedfp"
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "DeepSpeedFPConfig":
+    def from_config(cls, config: dict[str, Any]) -> "DeepSpeedFPConfig":
         weight_bits = cls.get_from_keys(config, ["bits"])
         group_size = cls.get_from_keys(config, ["group_size"])
         return cls(weight_bits=weight_bits, group_size=group_size)
@@ -55,7 +57,7 @@ class DeepSpeedFPConfig(QuantizationConfig):
         return DeepSpeedFPLinearMethod(self)
 
     @classmethod
-    def get_supported_act_dtypes(cls) -> List[torch.dtype]:
+    def get_supported_act_dtypes(cls) -> list[torch.dtype]:
         return [torch.half, torch.bfloat16]
 
     @classmethod
@@ -64,7 +66,7 @@ class DeepSpeedFPConfig(QuantizationConfig):
         return 60
 
     @staticmethod
-    def get_config_filenames() -> List[str]:
+    def get_config_filenames() -> list[str]:
         return [
             "quant_config.json",
             "quantize_config.json",
@@ -91,7 +93,7 @@ class DeepSpeedFPLinearMethod(LinearMethodBase):
     def create_weights(self,
                        layer: torch.nn.Module,
                        input_size_per_partition: int,
-                       output_partition_sizes: List[int],
+                       output_partition_sizes: list[int],
                        input_size: int,
                        output_size: int,
                        params_dtype: torch.dtype,
@@ -144,7 +146,7 @@ class DeepSpeedFPParameter(nn.Parameter):
                 quant_config: DeepSpeedFPConfig):
         try:
             import deepspeed
-            if deepspeed.__version__ < "0.14.2":
+            if version.parse(deepspeed.__version__) < version.parse("0.14.2"):
                 raise ImportError("deepspeed version is wrong. Please "
                                   "install deepspeed>=0.14.2.")
             from deepspeed.ops.fp_quantizer import FP_Quantize

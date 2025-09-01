@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -98,7 +99,7 @@ class MultiModalPlaceholderMap:
         seq_mm_placeholders = seq_group.multi_modal_placeholders
 
         if not seq_mm_data or not seq_mm_placeholders:
-            return MultiModalKwargs({}), {}
+            return MultiModalKwargs(), {}
 
         placeholder_maps = dict[str, MultiModalPlaceholderMap]()
 

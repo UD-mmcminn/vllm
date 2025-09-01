@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import torch
+from packaging import version
 
 from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization.base_config import (
@@ -21,10 +23,10 @@ logger = init_logger(__name__)
 
 class BitBLASLinearKernel(MPLinearKernel):
 
-    OPT_FEATURES: List[int] = BITBLAS_OPTIMIZE_FEATURES
+    OPT_FEATURES: list[int] = BITBLAS_OPTIMIZE_FEATURES
     ENABLE_TUNING: bool = True
     MATMUL_LAYOUT: str = "nt"
-    BITBLAS_DTYPES: Dict[torch.dtype, str] = {
+    BITBLAS_DTYPES: dict[torch.dtype, str] = {
         torch.float32: "float32",
         torch.float16: "float16",
         torch.bfloat16: "bfloat16",
@@ -103,13 +105,14 @@ class BitBLASLinearKernel(MPLinearKernel):
 
     @classmethod
     def can_implement(cls,
-                      c: MPLinearLayerConfig) -> Tuple[bool, Optional[str]]:
+                      c: MPLinearLayerConfig) -> tuple[bool, Optional[str]]:
 
         is_bitblas_installed = True
 
         try:
             import bitblas
-            if bitblas.__version__ < MINIMUM_BITBLAS_VERSION:
+            if version.parse(bitblas.__version__) < version.parse(
+                    MINIMUM_BITBLAS_VERSION):
                 raise ImportError(
                     "bitblas version is wrong. Please "
                     f"install bitblas>={MINIMUM_BITBLAS_VERSION}")

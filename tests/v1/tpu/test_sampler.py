@@ -1,17 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import random
 
 import pytest
 
-from vllm import LLM, envs
+from vllm import LLM
 from vllm.platforms import current_platform
 from vllm.sampling_params import SamplingParams
-
-if not envs.VLLM_USE_V1:
-    pytest.skip(
-        "Skipping V1 tests. Rerun with `VLLM_USE_V1=1` to test.",
-        allow_module_level=True,
-    )
 
 
 @pytest.mark.parametrize("model_name", ["Qwen/Qwen2.5-1.5B-Instruct"])
@@ -26,7 +21,7 @@ def test_sampler_different(model_name: str):
               enforce_eager=False,
               max_num_seqs=1,
               max_model_len=512,
-              max_num_batched_tokens=512)
+              max_num_batched_tokens=256)
     prompts = [
         "Write a short story about a robot that dreams for the first time."
     ]

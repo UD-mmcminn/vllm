@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-from typing import Any, Dict, List, Optional, Set
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+from typing import Any, Optional
 
 import torch
+from packaging import version
 from torch.nn.parameter import Parameter
 
 from vllm.logger import init_logger
@@ -62,7 +64,8 @@ class GPTQBitBLASConfig(QuantizationConfig):
 
         try:
             import bitblas
-            if bitblas.__version__ < MINIMUM_BITBLAS_VERSION:
+            if version.parse(bitblas.__version__) < version.parse(
+                    MINIMUM_BITBLAS_VERSION):
                 raise ImportError(
                     "bitblas version is wrong. Please "
                     f"install bitblas>={MINIMUM_BITBLAS_VERSION}")
@@ -80,6 +83,7 @@ class GPTQBitBLASConfig(QuantizationConfig):
             # (since we have only one group per output channel)
             desc_act = False
 
+        super().__init__()
         self.weight_bits = weight_bits
         self.group_size = group_size
         self.desc_act = desc_act
@@ -129,7 +133,7 @@ class GPTQBitBLASConfig(QuantizationConfig):
         return "gptq_bitblas"
 
     @classmethod
-    def get_supported_act_dtypes(cls) -> List[torch.dtype]:
+    def get_supported_act_dtypes(cls) -> list[torch.dtype]:
         return [torch.half, torch.bfloat16]
 
     @classmethod
@@ -137,11 +141,11 @@ class GPTQBitBLASConfig(QuantizationConfig):
         return 80
 
     @classmethod
-    def get_config_filenames(cls) -> List[str]:
+    def get_config_filenames(cls) -> list[str]:
         return ["quantize_config.json"]
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "GPTQBitBLASConfig":
+    def from_config(cls, config: dict[str, Any]) -> "GPTQBitBLASConfig":
         weight_bits = cls.get_from_keys(config, ["bits"])
         group_size = cls.get_from_keys(config, ["group_size"])
         desc_act = cls.get_from_keys(config, ["desc_act"])
@@ -185,7 +189,7 @@ class GPTQBitBLASConfig(QuantizationConfig):
         return self.TORCH_BITBLAS_STORAGE_DTYPE
 
     @classmethod
-    def is_gptq_bitblas_compatible(cls, quant_config: Dict[str, Any]):
+    def is_gptq_bitblas_compatible(cls, quant_config: dict[str, Any]):
         # Extract data from quant config.
         num_bits = quant_config.get("bits")
         group_size = quant_config.get("group_size")
@@ -224,7 +228,7 @@ class GPTQBitBLASLinearMethod(LinearMethodBase):
     """
 
     kernel_type = BitBLASLinearKernel
-    _kernel_backends_being_used: Set[str] = set()
+    _kernel_backends_being_used: set[str] = set()
 
     def __init__(self, quant_config: GPTQBitBLASConfig) -> None:
         self.quant_config = quant_config
@@ -236,7 +240,7 @@ class GPTQBitBLASLinearMethod(LinearMethodBase):
         self,
         layer: torch.nn.Module,
         input_size_per_partition: int,
-        output_partition_sizes: List[int],
+        output_partition_sizes: list[int],
         input_size: int,
         output_size: int,
         params_dtype: torch.dtype,

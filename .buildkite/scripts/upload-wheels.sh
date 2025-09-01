@@ -14,8 +14,19 @@ fi
 # Get the single wheel file
 wheel="${wheel_files[0]}"
 
-# Rename 'linux' to 'manylinux1' in the wheel filename
-new_wheel="${wheel/linux/manylinux1}"
+# Detect architecture and rename 'linux' to appropriate manylinux version
+arch=$(uname -m)
+if [[ $arch == "x86_64" ]]; then
+    manylinux_version="manylinux1"
+elif [[ $arch == "aarch64" ]]; then
+    manylinux_version="manylinux2014"
+else
+    echo "Warning: Unknown architecture $arch, using manylinux1 as default"
+    manylinux_version="manylinux1"
+fi
+
+# Rename 'linux' to the appropriate manylinux version in the wheel filename
+new_wheel="${wheel/linux/$manylinux_version}"
 mv -- "$wheel" "$new_wheel"
 wheel="$new_wheel"
 
@@ -75,3 +86,4 @@ else
 fi
 
 aws s3 cp "$wheel" "s3://vllm-wheels/$version/"
+aws s3 cp index.html "s3://vllm-wheels/$version/vllm/index.html"

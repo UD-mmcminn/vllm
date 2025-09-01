@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 from collections import deque
 from typing import Deque, FrozenSet, Iterable, List, Optional, Tuple, Union
@@ -206,7 +207,7 @@ class NaiveBlockAllocator(BlockAllocator):
 
         Args:
             absolute_id (int): The absolute block id for the block 
-            in whole allocator.
+                in whole allocator.
 
         Returns:
             int: The zero-offset block id on certain device.

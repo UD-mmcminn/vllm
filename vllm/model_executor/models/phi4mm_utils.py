@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 # Code copied from Microsoft/MoE by Jacob Platin (jacobplatin@microsoft.com)
 # but implemented by the Phi-Speech team
 #!/usr/bin/env python3
 import math
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
@@ -257,7 +258,7 @@ class DepthWiseSeperableConv1d(nn.Module):
             if set different to 0, the number of 
              depthwise_seperable_out_channel will be used as a channel_out
              of the second conv1d layer.
-             otherwise, it equal to 0, the second conv1d layer is skipped.
+             otherwise, it equals to 0, the second conv1d layer is skipped.
         kernel_size: int
             kernel_size
         depthwise_multiplier: int
@@ -1586,7 +1587,7 @@ class AttModule(nn.Module):
         memory: Optional[Tensor] = None,
         pos_emb: Optional[Tensor] = None,
         att_mask: Optional[Tensor] = None,
-    ) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor]]:
+    ) -> tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor]]:
         """AttModule forward
 
         Args:

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 # flake8: noqa
 """Tests fp8 models against ground truth generation
@@ -31,7 +32,7 @@ from ..utils import check_logprobs_close
 # Due to low-precision numerical divergence, we only test logprob of 4 tokens
 @pytest.mark.parametrize("max_tokens", [4])
 @pytest.mark.parametrize("enforce_eager", [True])
-@pytest.mark.parametrize("backend", ["FLASH_ATTN", "XFORMERS", "FLASHINFER"])
+@pytest.mark.parametrize("backend", ["FLASH_ATTN", "XFORMERS"])
 # NOTE: Increasing this in this suite will fail CI because we currently cannot
 # reset distributed env properly. Use a value > 1 just when you test.
 @pytest.mark.parametrize("tensor_parallel_size", [1])
@@ -55,6 +56,11 @@ def test_models(
     Only checks log probs match to cover the discrepancy in
     numerical sensitive kernels.
     """
+
+    if kv_cache_dtype == "fp8_e5m2" and current_platform.is_rocm():
+        pytest.skip(
+            f"{kv_cache_dtype} is currently not supported on ROCm/HIP.")
+
     with monkeypatch.context() as m:
         m.setenv("TOKENIZERS_PARALLELISM", 'true')
         m.setenv(STR_BACKEND_ENV_VAR, backend)

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-import re
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 from copy import deepcopy
-from typing import Dict, Optional, Union
+from fractions import Fraction
+from typing import Optional, Union
 
+import regex as re
 import torch
 
 from vllm.config import QuantizationConfig
@@ -28,7 +30,7 @@ def override_config(config: QuantizationConfig, prefix: str):
     if isinstance(desc_act, bool):
         config.desc_act = desc_act
 
-    config.pack_factor = 32 // config.weight_bits  # packed into int32
+    config.pack_factor = Fraction(32, config.weight_bits)  # packed into int32
     if config.get_name() == "gptq_marlin":
         is_sym = get_dynamic_override(config, prefix, "sym", config.is_sym)
         if isinstance(is_sym, bool):
@@ -52,7 +54,7 @@ def get_dynamic_override(
     layer_name: str,
     key: Optional[str] = None,
     default_value: Union[int, bool,
-                         None] = None) -> Union[Dict, int, bool, None]:
+                         None] = None) -> Union[dict, int, bool, None]:
     for pattern, pattern_dict in config.dynamic.items():
         # Negative match: matched modules are excluded from quantized init
         if pattern.startswith("-:"):

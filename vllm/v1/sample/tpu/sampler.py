@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """Sampler layer implementing TPU supported operations."""
 
 import torch
@@ -14,6 +15,7 @@ _SAMPLING_EPS = 1e-5
 class Sampler(nn.Module):
 
     def __init__(self):
+        # TODO(houseroad): Add support for logprobs_mode.
         super().__init__()
         self.topk_topp_sampler = TopKTopPSampler()
 
@@ -63,7 +65,7 @@ class Sampler(nn.Module):
             logits = self.apply_min_p(logits, sampling_metadata.min_p)
 
         # Apply top_k and/or top_p.
-        random_sampled = self.topk_topp_sampler(
+        random_sampled, _ = self.topk_topp_sampler(
             logits,
             sampling_metadata.generators,
             sampling_metadata.top_k,
@@ -87,7 +89,7 @@ class Sampler(nn.Module):
         Gather logprobs for topk and sampled/prompt token.
 
         Args:
-          logits: (num tokens) x (vocab) tensor
+          logprobs: (num tokens) x (vocab) tensor
           num_logprobs: minimum number of logprobs to
                         retain per token
           token_ids: prompt tokens (if prompt logprobs)

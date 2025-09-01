@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import json
 
@@ -22,6 +23,8 @@ MAXIMUM_AUDIOS = 2
 @pytest.fixture(scope="module")
 def server():
     args = [
+        "--dtype",
+        "float32",
         "--max-model-len",
         "2048",
         "--max-num-seqs",
@@ -272,7 +275,7 @@ async def test_chat_streaming_audio(client: openai.AsyncOpenAI,
     chat_completion = await client.chat.completions.create(
         model=model_name,
         messages=messages,
-        max_completion_tokens=10,
+        max_completion_tokens=8,
         temperature=0.0,
     )
     output = chat_completion.choices[0].message.content
@@ -282,7 +285,7 @@ async def test_chat_streaming_audio(client: openai.AsyncOpenAI,
     stream = await client.chat.completions.create(
         model=model_name,
         messages=messages,
-        max_completion_tokens=10,
+        max_completion_tokens=8,
         temperature=0.0,
         stream=True,
     )
@@ -332,7 +335,7 @@ async def test_chat_streaming_input_audio(client: openai.AsyncOpenAI,
     chat_completion = await client.chat.completions.create(
         model=model_name,
         messages=messages,
-        max_completion_tokens=10,
+        max_completion_tokens=8,
         temperature=0.0,
     )
     output = chat_completion.choices[0].message.content
@@ -342,7 +345,7 @@ async def test_chat_streaming_input_audio(client: openai.AsyncOpenAI,
     stream = await client.chat.completions.create(
         model=model_name,
         messages=messages,
-        max_completion_tokens=10,
+        max_completion_tokens=8,
         temperature=0.0,
         stream=True,
     )
