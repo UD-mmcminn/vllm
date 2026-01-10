@@ -42,6 +42,122 @@ def update_environment_variables(envs_dict: dict[str, str]):
         os.environ[k] = v
 
 
+def _parse_numa_node_for_local_rank(
+    mapping: str, local_rank: int
+) -> int | None:
+    mapping = mapping.strip()
+    if not mapping:
+        return None
+
+    if ":" not in mapping:
+        parts = [p.strip() for p in mapping.split(",") if p.strip()]
+        if local_rank >= len(parts):
+            logger.warning(
+                "VLLM_NUMA_NODE_BY_LOCAL_RANK has %d entries; local_rank=%d is out of range.",
+                len(parts),
+                local_rank,
+            )
+            return None
+        try:
+            return int(parts[local_rank])
+        except ValueError:
+            logger.warning(
+                "Invalid NUMA node entry '%s' for local_rank=%d in VLLM_NUMA_NODE_BY_LOCAL_RANK.",
+                parts[local_rank],
+                local_rank,
+            )
+            return None
+
+    for entry in mapping.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ":" not in entry:
+            logger.warning(
+                "Invalid NUMA mapping entry '%s' in VLLM_NUMA_NODE_BY_LOCAL_RANK.",
+                entry,
+            )
+            continue
+        rank_spec, node_spec = entry.split(":", 1)
+        try:
+            node = int(node_spec.strip())
+        except ValueError:
+            logger.warning(
+                "Invalid NUMA node '%s' in VLLM_NUMA_NODE_BY_LOCAL_RANK entry '%s'.",
+                node_spec,
+                entry,
+            )
+            continue
+
+        rank_spec = rank_spec.strip()
+        if "-" in rank_spec:
+            start_s, end_s = rank_spec.split("-", 1)
+            try:
+                start = int(start_s.strip())
+                end = int(end_s.strip())
+            except ValueError:
+                logger.warning(
+                    "Invalid rank range '%s' in VLLM_NUMA_NODE_BY_LOCAL_RANK entry '%s'.",
+                    rank_spec,
+                    entry,
+                )
+                continue
+            if start <= local_rank <= end:
+                return node
+        else:
+            try:
+                rank = int(rank_spec)
+            except ValueError:
+                logger.warning(
+                    "Invalid rank '%s' in VLLM_NUMA_NODE_BY_LOCAL_RANK entry '%s'.",
+                    rank_spec,
+                    entry,
+                )
+                continue
+            if rank == local_rank:
+                return node
+
+    logger.warning(
+        "No NUMA node mapping found for local_rank=%d in VLLM_NUMA_NODE_BY_LOCAL_RANK.",
+        local_rank,
+    )
+    return None
+
+
+def maybe_set_numa_preferred_node(local_rank: int) -> int | None:
+    mapping = envs.VLLM_NUMA_NODE_BY_LOCAL_RANK
+    if not mapping:
+        return None
+
+    node = _parse_numa_node_for_local_rank(mapping, local_rank)
+    if node is None:
+        return None
+
+    try:
+        import ctypes
+
+        libnuma = ctypes.CDLL("libnuma.so.1")
+    except OSError:
+        logger.warning(
+            "VLLM_NUMA_NODE_BY_LOCAL_RANK is set, but libnuma.so.1 is not available."
+        )
+        return None
+
+    if libnuma.numa_available() < 0:
+        logger.warning("NUMA is not available on this system.")
+        return None
+
+    try:
+        libnuma.numa_set_preferred(ctypes.c_int(node))
+        libnuma.numa_run_on_node(ctypes.c_int(node))
+    except Exception:
+        logger.warning("Failed to set NUMA node preference to %d.", node)
+        return None
+
+    logger.info("Set NUMA node preference to %d for local_rank=%d.", node, local_rank)
+    return node
+
+
 @contextlib.contextmanager
 def set_env_var(key: str, value: str) -> Iterator[None]:
     """Temporarily set an environment variable."""

@@ -43,6 +43,7 @@ from vllm.sequence import IntermediateTensors
 from vllm.tasks import SupportedTask
 from vllm.utils.mem_constants import GiB_bytes
 from vllm.utils.mem_utils import MemorySnapshot, memory_profiling
+from vllm.utils.system_utils import maybe_set_numa_preferred_node
 from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
 from vllm.v1.engine import ReconfigureDistributedRequest, ReconfigureRankType
 from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
@@ -212,6 +213,7 @@ class Worker(WorkerBase):
                     f"be less than or equal to the number of visible devices "
                     f"({visible_device_count})."
                 )
+            maybe_set_numa_preferred_node(self.local_rank)
             self.device = torch.device(f"cuda:{self.local_rank}")
             current_platform.set_device(self.device)
 

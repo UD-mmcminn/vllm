@@ -149,6 +149,7 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
             w13_up_dim = 2 * intermediate_size_per_partition
         else:
             w13_up_dim = intermediate_size_per_partition
+        device = "cpu" if envs.VLLM_ENABLE_MOE_LAYER_SWAP else None
         # Fused gate_up_proj (column parallel)
         w13_weight = torch.nn.Parameter(
             torch.empty(
@@ -156,6 +157,7 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
                 w13_up_dim,
                 hidden_size,
                 dtype=params_dtype,
+                device=device,
             ),
             requires_grad=False,
         )
@@ -163,7 +165,9 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
         set_weight_attrs(w13_weight, extra_weight_attrs)
         if self.moe.has_bias:
             w13_bias = torch.nn.Parameter(
-                torch.zeros(num_experts, w13_up_dim, dtype=params_dtype),
+                torch.zeros(
+                    num_experts, w13_up_dim, dtype=params_dtype, device=device
+                ),
                 requires_grad=False,
             )
             layer.register_parameter("w13_bias", w13_bias)
@@ -175,6 +179,7 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
                 hidden_size,
                 intermediate_size_per_partition,
                 dtype=params_dtype,
+                device=device,
             ),
             requires_grad=False,
         )
@@ -182,7 +187,9 @@ class UnquantizedFusedMoEMethod(FusedMoEMethodBase, CustomOp):
         set_weight_attrs(w2_weight, extra_weight_attrs)
         if self.moe.has_bias:
             w2_bias = torch.nn.Parameter(
-                torch.zeros(num_experts, hidden_size, dtype=params_dtype),
+                torch.zeros(
+                    num_experts, hidden_size, dtype=params_dtype, device=device
+                ),
                 requires_grad=False,
             )
             layer.register_parameter("w2_bias", w2_bias)

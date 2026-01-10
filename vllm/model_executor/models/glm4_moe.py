@@ -31,6 +31,7 @@ import torch
 from torch import nn
 from transformers.models.glm4_moe import Glm4MoeConfig
 
+import vllm.envs as envs
 from vllm.attention.layer import Attention
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import CacheConfig, VllmConfig, get_current_vllm_config
@@ -224,6 +225,15 @@ class Glm4MoE(nn.Module):
             )
         return final_hidden_states.view(num_tokens, hidden_dim)
 
+    def prefetch_experts(self) -> None:
+        self.experts.prefetch_experts()
+
+    def wait_experts(self) -> None:
+        self.experts.wait_experts()
+
+    def offload_experts(self) -> None:
+        self.experts.offload_experts()
+
 
 class Glm4MoeAttention(nn.Module):
     def __init__(
@@ -391,9 +401,15 @@ class Glm4MoeDecoderLayer(nn.Module):
             hidden_states = self.input_layernorm(hidden_states)
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
+        if isinstance(self.mlp, Glm4MoE):
+            self.mlp.prefetch_experts()
         hidden_states = self.self_attn(positions=positions, hidden_states=hidden_states)
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
+        if isinstance(self.mlp, Glm4MoE):
+            self.mlp.wait_experts()
         hidden_states = self.mlp(hidden_states)
+        if isinstance(self.mlp, Glm4MoE):
+            self.mlp.offload_experts()
         return hidden_states, residual
 
 
@@ -632,6 +648,11 @@ class Glm4MixtureOfExperts(MixtureOfExperts):
             moe.n_redundant_experts = self.num_redundant_experts
             moe.experts.update_expert_map()
 
+    def offload_moe_experts(self) -> None:
+        for moe in self.moe_layers:
+            moe.cache_cpu_expert_tensors()
+            moe.offload_experts()
+
 
 class Glm4MoeForCausalLM(nn.Module, SupportsPP, SupportsLoRA, Glm4MixtureOfExperts):
     packed_modules_mapping = {
@@ -717,7 +738,10 @@ class Glm4MoeForCausalLM(nn.Module, SupportsPP, SupportsLoRA, Glm4MixtureOfExper
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         loader = AutoWeightsLoader(self)
-        return loader.load_weights(weights)
+        loaded = loader.load_weights(weights)
+        if envs.VLLM_ENABLE_MOE_LAYER_SWAP:
+            self.offload_moe_experts()
+        return loaded
 
     def get_expert_mapping(self) -> list[tuple[str, str, int, str]]:
         return self.model.get_expert_mapping()

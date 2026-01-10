@@ -1,0 +1,14 @@
+{
+  "name": "llvm-dev",
+  "build": { "dockerfile": "Dockerfile" },
+  "containerEnv": {
+    "CCACHE_DIR": "/workspaces/.ccache"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python"
+      }
+    }
+  }
+}

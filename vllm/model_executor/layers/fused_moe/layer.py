@@ -653,6 +653,10 @@ class FusedMoE(CustomOp):
         # Chunked all2all staging tensor
         self.batched_hidden_states: torch.Tensor | None = None
         self.batched_router_logits: torch.Tensor | None = None
+        self._swap_stream: torch.cuda.Stream | None = None
+        self._swap_event: torch.cuda.Event | None = None
+        self._expert_cpu_tensors: dict[str, torch.Tensor] = {}
+        self.skip_device_loading_context = self._moe_swap_enabled()
 
     # Note: maybe_init_modular_kernel should only be called by
     # prepare_communication_buffer_for_model.
@@ -1399,6 +1403,93 @@ class FusedMoE(CustomOp):
                         self.layer_name,
                     )
                     yield param_name
+
+    def _iter_expert_parameters(self) -> Iterable[tuple[str, torch.nn.Parameter]]:
+        non_expert_weights = {
+            "e_score_correction_bias",
+        }
+        for name, param in self.named_parameters():
+            if name in non_expert_weights:
+                continue
+            if name.startswith("_shared_experts.") or name.startswith("_gate."):
+                continue
+            if param.shape == torch.Size([]):
+                continue
+            yield name, param
+
+    def _moe_swap_enabled(self) -> bool:
+        if not envs.VLLM_ENABLE_MOE_LAYER_SWAP:
+            return False
+        if not current_platform.is_cuda_alike():
+            return False
+        return self.quant_method.__class__.__name__ == "UnquantizedFusedMoEMethod"
+
+    def cache_cpu_expert_tensors(self) -> None:
+        if not self._moe_swap_enabled():
+            return
+
+        pin_memory = envs.VLLM_MOE_LAYER_SWAP_PIN_MEMORY
+        for name, param in self._iter_expert_parameters():
+            if name in self._expert_cpu_tensors:
+                continue
+            if param.device.type != "cpu":
+                continue
+            if not self._expert_cpu_tensors:
+                logger.info_once(
+                    "Caching MoE expert weights on CPU for layer %s.",
+                    self.layer_name,
+                )
+            cpu_tensor = param.data
+            if pin_memory and not cpu_tensor.is_pinned():
+                cpu_tensor = cpu_tensor.pin_memory()
+                param.data = cpu_tensor
+            self._expert_cpu_tensors[name] = cpu_tensor
+
+    def prefetch_experts(self) -> None:
+        if not self._moe_swap_enabled():
+            return
+        self.cache_cpu_expert_tensors()
+
+        if not self._expert_cpu_tensors:
+            return
+        if all(
+            param.device.type == "cuda"
+            for _, param in self._iter_expert_parameters()
+        ):
+            return
+
+        device = torch.device("cuda", torch.cuda.current_device())
+        if self._swap_stream is None:
+            self._swap_stream = torch.cuda.Stream(device=device)
+        if self._swap_event is None:
+            self._swap_event = torch.cuda.Event()
+
+        with torch.cuda.stream(self._swap_stream):
+            for name, param in self._iter_expert_parameters():
+                cpu_tensor = self._expert_cpu_tensors.get(name)
+                if cpu_tensor is None:
+                    continue
+                param.data = cpu_tensor.to(device, non_blocking=True)
+            self._swap_event.record(self._swap_stream)
+
+    def wait_experts(self) -> None:
+        if not self._moe_swap_enabled():
+            return
+        if self._swap_event is None:
+            return
+        current_stream().wait_event(self._swap_event)
+
+    def offload_experts(self) -> None:
+        if not self._moe_swap_enabled():
+            return
+        self.cache_cpu_expert_tensors()
+        for name, param in self._iter_expert_parameters():
+            cpu_tensor = self._expert_cpu_tensors.get(name)
+            if cpu_tensor is None:
+                continue
+            if param.device.type == "cpu":
+                continue
+            param.data = cpu_tensor
 
     def get_expert_weights(self) -> Iterable[torch.Tensor]:
         def _maybe_make_contiguous(

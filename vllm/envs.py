@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     VLLM_CPU_KVCACHE_SPACE: int | None = 0
     VLLM_CPU_OMP_THREADS_BIND: str = ""
     VLLM_CPU_NUM_OF_RESERVED_CPU: int | None = None
+    VLLM_NUMA_NODE_BY_LOCAL_RANK: str = ""
     VLLM_CPU_SGL_KERNEL: bool = False
     VLLM_XLA_CACHE_PATH: str = os.path.join(VLLM_CACHE_ROOT, "xla_cache")
     VLLM_XLA_CHECK_RECOMPILATION: bool = False
@@ -148,6 +149,8 @@ if TYPE_CHECKING:
     VLLM_DP_MASTER_PORT: int = 0
     VLLM_MOE_DP_CHUNK_SIZE: int = 256
     VLLM_ENABLE_MOE_DP_CHUNK: bool = True
+    VLLM_ENABLE_MOE_LAYER_SWAP: bool = False
+    VLLM_MOE_LAYER_SWAP_PIN_MEMORY: bool = False
     VLLM_RANDOMIZE_DP_DUMMY_INPUTS: bool = False
     VLLM_RAY_DP_PACK_STRATEGY: Literal["strict", "fill", "span"] = "strict"
     VLLM_MARLIN_USE_ATOMIC_ADD: bool = False
@@ -700,6 +703,11 @@ environment_variables: dict[str, Callable[[], Any]] = {
     )
     if "VLLM_CPU_NUM_OF_RESERVED_CPU" in os.environ
     else None,
+    # NUMA node mapping by local rank.
+    # Example: "0,0,0,0,1,1,1,1" or "0-3:0,4-7:1"
+    "VLLM_NUMA_NODE_BY_LOCAL_RANK": lambda: os.getenv(
+        "VLLM_NUMA_NODE_BY_LOCAL_RANK", ""
+    ),
     # (CPU backend only) whether to use SGL kernels, optimized for small batch.
     "VLLM_CPU_SGL_KERNEL": lambda: bool(int(os.getenv("VLLM_CPU_SGL_KERNEL", "0"))),
     # If the env var is set, Ray Compiled Graph uses the specified
@@ -1096,6 +1104,14 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "VLLM_MOE_DP_CHUNK_SIZE": lambda: int(os.getenv("VLLM_MOE_DP_CHUNK_SIZE", "256")),
     "VLLM_ENABLE_MOE_DP_CHUNK": lambda: bool(
         int(os.getenv("VLLM_ENABLE_MOE_DP_CHUNK", "1"))
+    ),
+    # Enable swapping MoE expert weights between CPU and GPU per layer.
+    "VLLM_ENABLE_MOE_LAYER_SWAP": lambda: bool(
+        int(os.getenv("VLLM_ENABLE_MOE_LAYER_SWAP", "0"))
+    ),
+    # Pin MoE expert weights in CPU memory for faster H2D copies.
+    "VLLM_MOE_LAYER_SWAP_PIN_MEMORY": lambda: bool(
+        int(os.getenv("VLLM_MOE_LAYER_SWAP_PIN_MEMORY", "0"))
     ),
     # Randomize inputs during dummy runs when using Data Parallel
     "VLLM_RANDOMIZE_DP_DUMMY_INPUTS": lambda: os.environ.get(
@@ -1686,9 +1702,12 @@ def compile_factors() -> dict[str, object]:
         "VLLM_WORKER_MULTIPROC_METHOD",
         "VLLM_ENABLE_V1_MULTIPROCESSING",
         "VLLM_V1_OUTPUT_PROC_CHUNK_SIZE",
-        "VLLM_CPU_KVCACHE_SPACE",
+    "VLLM_CPU_KVCACHE_SPACE",
         "VLLM_CPU_OMP_THREADS_BIND",
         "VLLM_CPU_NUM_OF_RESERVED_CPU",
+        "VLLM_NUMA_NODE_BY_LOCAL_RANK",
+        "VLLM_ENABLE_MOE_LAYER_SWAP",
+        "VLLM_MOE_LAYER_SWAP_PIN_MEMORY",
         "VLLM_CPU_MOE_PREPACK",
         "VLLM_CPU_SGL_KERNEL",
         "VLLM_TEST_FORCE_LOAD_FORMAT",

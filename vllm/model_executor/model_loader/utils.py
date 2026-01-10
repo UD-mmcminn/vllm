@@ -124,6 +124,9 @@ def device_loading_context(module: torch.nn.Module, target_device: torch.device)
         # If target is CPU, no need to move anything
         yield module
         return
+    if getattr(module, "skip_device_loading_context", False):
+        yield module
+        return
 
     original_device_states: dict[str, torch.device] = {}
 
